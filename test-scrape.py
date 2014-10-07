@@ -22,6 +22,7 @@ def find_link_to_game_page(title):
     # Find link to game
     soup = BeautifulSoup(r.content)
     links = soup.find_all("a", text=re.compile(title))
+    return links
     if not links:
         print("Not found:", title)
         return None
