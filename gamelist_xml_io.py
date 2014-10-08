@@ -40,7 +40,6 @@ class GameListXML(object):
     def save(self, update_data=None):
         if update_data:
             self.update_game(update_data)
-        game_node = [gn for gn in self.tree.findall('.//game') if gn.find('name').text == update_data['name']][0]
 
         with open(self.path, mode="wb") as f:
             self.tree.write(f, encoding="utf-8")
@@ -69,7 +68,6 @@ class GameListXML(object):
                             game[field] = game_node.find(field).text
                         except AttributeError:
                             game[field] = None
-                    print(game)
                     return game
             except AttributeError:
                 # 'NoneType' object has no attribute 'lower'
@@ -88,9 +86,11 @@ class GameListXML(object):
                 return game
         return None
 
+    def get_all_game_titles(self):
+        return [node.findtext('name') for node in self.tree.findall('game') if node.findtext('name') is not None]
 
-    def show_diff(self, updated):
-        original = self.get_game_info(updated['name'])
+
+    def show_diff(self, original, updated):
         print(original, updated)
         for key, value in updated.items():
             if original[key] != updated[key]:
@@ -102,13 +102,18 @@ class GameListXML(object):
                 print()
 
     def update_game(self, data):
-        game_node = [node.text for node in self.tree.findall('.//name') if node.text.lower() == data['name'].lower()][0]
+        game_nodes = [node for node in self.tree.findall('.//game') if node.find('name') is not None]
+        game_node = [node for node in game_nodes if node.find('name').text.lower() == data['name'].lower()][0]
         for key, value in data.items():
             node = game_node.find(key)
-            node.text = value
+            if node is not None:
+                node.text = value
+            else:
+                node = ElementTree.SubElement(game_node, key)
+                node.text = value
 
     def add_game_by_rom_name(self, rom):
         root = self.tree.getroot()
         game_node = ElementTree.SubElement(root, "game")
         path = ElementTree.SubElement(game_node, "path")
-        path.text = rom
+        path.text = './{rom}'.format(rom=rom)

@@ -1,4 +1,5 @@
 import argparse
+import difflib
 import getopt
 import logging
 import os
@@ -86,17 +87,37 @@ def main(command_line_options):
     es_settings_dir = os.path.normpath(es_settings_dir)
     fp = os.path.normpath(os.path.join(es_settings_dir, gamelist_xml_path))
     logging.info("Opening " + fp)
-    game_list = gamelist_xml_io.GameListXML(fp)
+    game_list_xml = gamelist_xml_io.GameListXML(fp)
 
     if args.rom_check:
         rom_path = get_roms_directory(es_settings_dir)
-        add_missing_roms_to_xml(game_list, get_roms(rom_path))
+        add_missing_roms_to_xml(game_list_xml, get_roms(rom_path))
 
-    def process_game(game_name):
-        logging.info('Scraping information for %(game)s' % {'game': game_name})
-        search_results = scraper.get_links_to_game_page(game_name)
+    def process_game(title):
+        original_game_data = game_list_xml.get_game_info(title)
+        # Is a game with this name in the XML?
+        if original_game_data is None:
+            print("No game named {title} found in gamelist.xml.".format(title=title))
+            matches = [t for t in game_list_xml.get_all_game_titles() if title in t]
+            if len(matches) == 1:
+                title = matches[0]
+                print('I suppose you mean "{title}". Continuing.'.format(title=title))
+            elif len(matches) > 1:
+                print("Did you mean one of these?")
+                for idx, matched_title in enumerate(matches):
+                    print('{idx}. {matched_title}'.format(idx=idx, matched_title=matched_title))
+                title_idx = input("Select game: ")
+                title = matches[title_idx]
+            elif len(matches) == 0:
+                print('No titles resembling "{title}" found in gamelist XML either.'.format(title=title))
+                sys.exit()
+
+        original_game_data = game_list_xml.get_game_info(title)
+
+        logging.info('Scraping information for %(game)s' % {'game': title})
+        search_results = scraper.get_links_to_game_page(title)
         if len(search_results) > 1:
-            print("Found {results} results for '{game}'.".format(results=len(search_results), game=game_name))
+            print("Found {results} results for '{title}'.".format(results=len(search_results), title=title))
             for idx, result in enumerate(search_results):
                 print('{counter}. {title}'.format(counter=int(idx)+1, title=result['title']))
             selection = input("Select game to look up: ")
@@ -104,37 +125,37 @@ def main(command_line_options):
         elif len(search_results) == 1:
             game_url = search_results[0]['url']
         elif not search_results:
-            print("Can't find game page for '%(game)s'..." % {'game': game_name})
+            print("Can't find game page for '%(game)s'..." % {'game': title})
             game_url = '/game_detail.php?game_id=' + input("Enter URL (leave blank to skip): %(base_url)s/game_detail.php?game_id=" % {'base_url': scraper.BASE_URL})
             if not game_url:
                 sys.exit()
 
-        game_info = scraper.scrape_game_info(game_url)
+        scraped_game_data = scraper.scrape_game_info(game_url)
 
-        if len(game_info['image']) > 1:
+        if len(scraped_game_data['image']) > 1:
             # Select image
-            game_info['image'] = select_image(scraper.base_url, game_info['image'])
+            scraped_game_data['image'] = select_image(scraper.base_url, scraped_game_data['image'])
 
         # Show diff
-        game_list.show_diff(game_info)
+        game_list_xml.show_diff(original_game_data, scraped_game_data)
 
         # Save?
         save = input("Do you want to save the updated information (Y/n)? ")
         if save in ("Y", "y", ""):
             # Download image
-            image_filename = game_info['image'].split('/')[-1]
-            r = requests.get(scraper.base_url + game_info['image'])
+            image_filename = scraped_game_data['image'].split('/')[-1]
+            r = requests.get(scraper.base_url + scraped_game_data['image'])
             image = Image.open(BytesIO(r.content))
             image_fp = os.path.join(es_settings_dir, 'downloaded_images/mame/' + image_filename)
             logging.info("Saving screenshot to {fp}".format(fp=image_fp))
             image.save(image_fp)
-            game_info['image'] = '~/.emulationstation/downloaded_images/mame/' + image_filename
-            game_list.save(game_info)
+            scraped_game_data['image'] = '~/.emulationstation/downloaded_images/mame/' + image_filename
+            game_list_xml.save(scraped_game_data)
 
     if not args.game:
         # Scrape all games
-        for game in game_list.games:
-            process_game(game['name'])
+        for title in game_list_xml.get_all_game_titles():
+            process_game(title)
     else:
         # Scrape for a specific game only
         process_game(args.game)
